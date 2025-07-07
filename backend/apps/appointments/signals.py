@@ -8,18 +8,19 @@ from .models import Appointment
 @receiver(post_save, sender=Appointment)
 def update_mentor_availability(sender, instance, created, **kwargs):
     """
-    Update mentor availability after an appointment is saved.
-    Example: Mark as unavailable if status is 'confirmed'.
+    Automatically update mentor availability after appointment is saved.
+    Marks mentor as unavailable if a confirmed appointment is created.
     """
     if instance.status == 'confirmed':
         instance.mentor.available = False
-        instance.mentor.save()
+        instance.mentor.save(update_fields=["available"])
 
 
 @receiver(post_delete, sender=Appointment)
 def restore_mentor_availability(sender, instance, **kwargs):
     """
     Restore mentor availability when an appointment is deleted.
+    Example: Student cancels or admin deletes the session.
     """
     instance.mentor.available = True
-    instance.mentor.save()
+    instance.mentor.save(update_fields=["available"])

@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -16,8 +16,8 @@ from services.recommendations import (
 class MatchViewSet(viewsets.ViewSet):
     """
     Recommendation API:
-    - /api/match/mentors/?limit=5
-    - /api/match/courses/?limit=5
+    - GET /api/match/mentors/?limit=5
+    - GET /api/match/courses/?limit=5
 
     Returns a personalized list of mentors or courses based on user profile.
     """
@@ -26,33 +26,37 @@ class MatchViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='mentors')
     def mentors(self, request):
         """
-        GET /api/match/mentors/?limit=5
-
         Returns recommended mentors for the logged-in student.
         """
         try:
             limit = int(request.query_params.get('limit', 5))
         except ValueError:
-            return Response({"error": "Invalid limit"}, status=400)
+            return Response({"error": "Invalid limit"}, status=status.HTTP_400_BAD_REQUEST)
 
         student = request.user
-        mentors = recommend_mentors_for_student(student, limit=limit)
+        try:
+            mentors = recommend_mentors_for_student(student, limit=limit)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         data = MentorRecommendationSerializer(mentors, many=True).data
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='courses')
     def courses(self, request):
         """
-        GET /api/match/courses/?limit=5
-
         Returns recommended courses for the logged-in student.
         """
         try:
             limit = int(request.query_params.get('limit', 5))
         except ValueError:
-            return Response({"error": "Invalid limit"}, status=400)
+            return Response({"error": "Invalid limit"}, status=status.HTTP_400_BAD_REQUEST)
 
         student = request.user
-        courses = recommend_courses_for_student(student, limit=limit)
+        try:
+            courses = recommend_courses_for_student(student, limit=limit)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         data = CourseRecommendationSerializer(courses, many=True).data
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)

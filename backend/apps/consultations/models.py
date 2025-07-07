@@ -17,6 +17,15 @@ class ConsultationQuerySet(models.QuerySet):
     def for_user(self, user):
         return self.filter(models.Q(student=user) | models.Q(mentor__user=user))
 
+    def completed(self):
+        return self.filter(status=Consultation.STATUS_COMPLETED)
+
+    def in_progress(self):
+        return self.filter(status=Consultation.STATUS_IN_PROGRESS)
+
+    def cancelled(self):
+        return self.filter(status=Consultation.STATUS_CANCELLED)
+
 
 class Consultation(models.Model):
     """
@@ -59,6 +68,8 @@ class Consultation(models.Model):
         blank=True,
         help_text="Twilio Room SID once the session is started"
     )
+    feedback = models.TextField(blank=True, help_text="Optional feedback after completion")
+    rating = models.PositiveIntegerField(null=True, blank=True, help_text="Optional rating out of 5")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -121,13 +132,15 @@ class Consultation(models.Model):
         self.twilio_room_sid = twilio_sid
         self.save()
 
-    def complete(self):
+    def complete(self, rating=None, feedback=""):
         """
-        Complete the consultation.
+        Complete the consultation. Optionally attach feedback and rating.
         """
         if self.status != self.STATUS_IN_PROGRESS:
             raise ValidationError("Only in-progress consultations can be completed.")
         self.status = self.STATUS_COMPLETED
+        self.rating = rating
+        self.feedback = feedback
         self.save()
 
     def cancel(self):
@@ -138,3 +151,15 @@ class Consultation(models.Model):
             raise ValidationError("Cannot cancel a completed consultation.")
         self.status = self.STATUS_CANCELLED
         self.save()
+
+    def is_over(self):
+        return timezone.now() > self.end_time
+
+    def duration_display(self):
+        return f"{self.duration_mins} mins"
+
+    def student_username(self):
+        return self.student.username
+
+    def mentor_username(self):
+        return self.mentor.user.username

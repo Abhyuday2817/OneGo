@@ -17,9 +17,12 @@ from .filters import GigRequestFilter
 
 class GigRequestViewSet(viewsets.ModelViewSet):
     """
-    CRUD + actions for Gig Requests
+    Handles:
+    - CRUD for Gig Requests
+    - Custom actions: cancel, close, view bids, place_bid
     """
-    queryset = GigRequest.objects.prefetch_related("bids", "contracts").select_related("student", "category")
+    queryset = GigRequest.objects.prefetch_related("bids_from_gigs_app", "contracts_from_gigs_app")\
+                                 .select_related("student", "category")
     serializer_class = GigRequestSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -32,7 +35,7 @@ class GigRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_staff:
             return self.queryset
-        return self.queryset.filter(Q(student=user) | Q(bids__mentor__user=user)).distinct()
+        return self.queryset.filter(Q(student=user) | Q(bids_from_gigs_app__mentor__user=user)).distinct()
 
     def perform_create(self, serializer):
         serializer.save(student=self.request.user)
@@ -40,10 +43,13 @@ class GigRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def bids(self, request, pk=None):
         gig = self.get_object()
-        qs = gig.bids.select_related("mentor__user")
+        qs = gig.bids_from_gigs_app.select_related("mentor__user")
         page = self.paginate_queryset(qs)
-        serializer = BidSerializer(page, many=True, context={"request": request})
-        return self.get_paginated_response(serializer.data)
+        if page is not None:
+            serializer = BidSerializer(page, many=True, context={"request": request})
+            return self.get_paginated_response(serializer.data)
+        serializer = BidSerializer(qs, many=True, context={"request": request})
+        return Response(serializer.data)
 
     @action(detail=True, methods=["post"])
     def place_bid(self, request, pk=None):
@@ -75,8 +81,9 @@ class GigRequestViewSet(viewsets.ModelViewSet):
 
 class BidViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Read-only access to Bids.
-    Accept/reject via POST actions.
+    Handles:
+    - Viewing your own bids
+    - Accept/reject actions by gig owner
     """
     queryset = Bid.objects.select_related("mentor__user", "gig_request__student")
     serializer_class = BidSerializer
@@ -110,8 +117,9 @@ class BidViewSet(viewsets.ReadOnlyModelViewSet):
 
 class ContractViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    View active/completed contracts.
-    Cancel or complete via POST.
+    Handles:
+    - Viewing contracts
+    - Completing or cancelling contracts
     """
     queryset = Contract.objects.select_related("mentor__user", "student", "gig_request", "bid")
     serializer_class = ContractSerializer

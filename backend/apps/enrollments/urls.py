@@ -2,9 +2,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import EnrollmentViewSet
 
+# Register EnrollmentViewSet with router
 router = DefaultRouter()
-router.register(r"enrollments", EnrollmentViewSet, basename="enrollment")
+router.register(r"", EnrollmentViewSet, basename="enrollment")
 
 urlpatterns = [
-    path("api/", include(router.urls)),
+    path("", include(router.urls)),
 ]

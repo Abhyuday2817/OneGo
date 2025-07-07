@@ -1,58 +1,105 @@
-# mentors/tests.py
-from django.test import TestCase
+from rest_framework.test import APITestCase
 from django.contrib.auth import get_user_model
-from categories.models import Category
-from mentors.models import MentorProfile
-from rest_framework.test import APIClient
+from django.utils import timezone
+from datetime import timedelta
+from apps.mentors.models import MentorProfile
+from apps.sessions.models import Session
 
 User = get_user_model()
 
-class MentorProfileTests(TestCase):
+
+class SessionTestCase(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username="mentor1", password="pass123")
-        self.category = Category.objects.create(name="Math", type="Education")
-        self.mentor_profile = MentorProfile.objects.create(
-            user=self.user,
-            bio="Experienced math tutor",
+        self.mentor_user = User.objects.create_user(username="mentor", password="mentorpass")
+        self.student_user = User.objects.create_user(username="student", password="studentpass")
+
+        self.mentor = MentorProfile.objects.create(
+            user=self.mentor_user,
+            expertise="Python",
             hourly_rate=100,
-            per_minute_rate=2,
-            rating=4.5,
-            num_reviews=10,
-            languages="en,hi",
-            certifications="BSc Math"
+            per_minute_rate=5,
+            bio="Experienced Python Mentor",
+            languages="English",
+            country="India",
+            availability_slots="9AM-5PM"
         )
-        self.mentor_profile.specialties.add(self.category)
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
-    def test_mentor_profile_str(self):
-        self.assertEqual(str(self.mentor_profile), f"{self.user.username} (⭐{self.mentor_profile.rating:.1f})")
+        self.session = Session.objects.create(
+            student=self.student_user,
+            mentor=self.mentor,
+            session_type=Session.TYPE_FIXED,
+            start_time=timezone.now() + timedelta(hours=2),
+            end_time=timezone.now() + timedelta(hours=3),
+            rate_applied=100
+        )
 
-    def test_available_at_filter(self):
-        now = "2025-06-20T12:00:00Z"
-        self.mentor_profile.availability_windows = [
-            {"start": "2025-06-20T10:00:00Z", "end": "2025-06-20T14:00:00Z"}
-        ]
-        self.mentor_profile.save()
+        self.client.login(username="student", password="studentpass")
 
-        response = self.client.get(f"/api/mentors/?available_at={now}")
+    def test_create_session(self):
+        self.client.logout()
+        self.client.login(username="student", password="studentpass")
+        data = {
+            "student_id": self.student_user.id,
+            "mentor_id": self.mentor.id,
+            "session_type": Session.TYPE_FIXED,
+            "start_time": (timezone.now() + timedelta(days=1)).isoformat(),
+            "end_time": (timezone.now() + timedelta(days=1, hours=1)).isoformat(),
+            "rate_applied": 150
+        }
+        response = self.client.post("/api/sessions/", data, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("id", response.data)
+
+    def test_confirm_by_student(self):
+        response = self.client.post(f"/api/sessions/{self.session.id}/confirm/?role=student")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.student_confirmed)
 
-    def test_mentor_dashboard(self):
-        response = self.client.get("/api/mentors/dashboard/")
+    def test_confirm_by_mentor(self):
+        self.client.logout()
+        self.client.login(username="mentor", password="mentorpass")
+        response = self.client.post(f"/api/sessions/{self.session.id}/confirm/?role=mentor")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("mentor", response.data)
-        self.assertIn("total_earnings", response.data)
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.mentor_confirmed)
 
-    def test_mentor_me_view(self):
-        response = self.client.get("/api/mentors/me/")
+    def test_cancel_session_by_student(self):
+        response = self.client.post(f"/api/sessions/{self.session.id}/cancel/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["user"]["id"], self.user.id)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.status, Session.STATUS_CANCELLED)
 
-    def test_update_mentor_profile(self):
-        data = {"bio": "Updated bio", "specialty_ids": [self.category.id]}
-        response = self.client.put("/api/mentors/me/", data, format="json")
+    def test_start_end_session_by_mentor(self):
+        self.client.logout()
+        self.client.login(username="mentor", password="mentorpass")
+        # Start session
+        response = self.client.post(f"/api/sessions/{self.session.id}/start/")
         self.assertEqual(response.status_code, 200)
-        self.mentor_profile.refresh_from_db()
-        self.assertEqual(self.mentor_profile.bio, "Updated bio")
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.status, Session.STATUS_ONGOING)
+
+        # End session
+        response = self.client.post(f"/api/sessions/{self.session.id}/end/")
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.status, Session.STATUS_COMPLETED)
+        self.assertIsNotNone(self.session.total_price)
+
+    def test_stats(self):
+        response = self.client.get("/api/sessions/stats/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("total_sessions", response.data)
+
+    def test_bulk_cancel(self):
+        s2 = Session.objects.create(
+            student=self.student_user,
+            mentor=self.mentor,
+            session_type=Session.TYPE_FIXED,
+            start_time=timezone.now() + timedelta(hours=4),
+            end_time=timezone.now() + timedelta(hours=5),
+            rate_applied=200
+        )
+        response = self.client.post("/api/sessions/bulk_cancel/", {"ids": [self.session.id, s2.id]})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["cancelled_count"], 2)

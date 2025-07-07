@@ -1,3 +1,5 @@
+### 📁 apps/admin/dashboard.py
+
 from django.db.models import Sum, Count, Avg
 from django.utils import timezone
 from payments.models import Payment
@@ -5,6 +7,7 @@ from enrollments.models import Enrollment
 from sessions.models import Session
 from categories.models import Category
 from mentors.models import MentorProfile
+
 
 def total_revenue(start=None, end=None):
     """
@@ -15,7 +18,8 @@ def total_revenue(start=None, end=None):
         qs = qs.filter(created_at__gte=start)
     if end:
         qs = qs.filter(created_at__lte=end)
-    return qs.aggregate(total=Sum("amount"))["total"] or 0
+    return qs.aggregate(total=Sum("amount"))['total'] or 0
+
 
 def revenue_by_month(year=None):
     """
@@ -34,8 +38,8 @@ def revenue_by_month(year=None):
         .annotate(total=Sum("amount"))
         .order_by("month")
     )
-    # {1: 1200.00, 2: 900.50, …}
     return {item["month"]: item["total"] for item in data}
+
 
 def top_categories_by_enrollment(limit=5):
     """
@@ -51,6 +55,7 @@ def top_categories_by_enrollment(limit=5):
         {"id": d["course__category__id"], "name": d["course__category__name"], "enrollments": d["count"]}
         for d in data
     ]
+
 
 def top_mentors_by_sessions(limit=5):
     """
@@ -72,6 +77,7 @@ def top_mentors_by_sessions(limit=5):
         for d in data
     ]
 
+
 def mentor_performance(mentor_id):
     """
     Returns detailed performance metrics for a single mentor.
@@ -87,11 +93,28 @@ def mentor_performance(mentor_id):
             user=mentor.user,
             method__icontains="session"
         )
-        .aggregate(total=Sum("amount"))["total"] or 0
+        .aggregate(total=Sum("amount"))['total'] or 0
     )
     return {
         "mentor": mentor.user.username,
         "total_sessions": total_sessions,
         "average_rating": round(avg_rating, 2),
         "total_revenue": revenue,
+    }
+
+
+def student_overview(student_id):
+    """
+    Returns total sessions attended, enrolled courses, and progress for a student.
+    """
+    from users.models import User
+    student = User.objects.get(pk=student_id)
+    sessions = Session.objects.filter(student=student, status=Session.STATUS_COMPLETED).count()
+    enrollments = Enrollment.objects.filter(student=student).count()
+    progress = Enrollment.objects.filter(student=student).aggregate(avg_progress=Avg('progress'))['avg_progress'] or 0.0
+    return {
+        "student": student.username,
+        "sessions_attended": sessions,
+        "enrolled_courses": enrollments,
+        "average_progress": round(progress, 2),
     }

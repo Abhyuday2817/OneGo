@@ -3,8 +3,8 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.utils import timezone
 from django.core.exceptions import ValidationError
-from apps.categories.models import Category  # Fixed import
-from apps.mentors.models import MentorProfile  # Fixed import
+from apps.categories.models import Category
+from apps.mentors.models import MentorProfile
 
 
 class GigRequest(models.Model):
@@ -21,12 +21,12 @@ class GigRequest(models.Model):
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="gigs_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="gigs_from_gigs_app"
     )
     category = models.ForeignKey(
         Category,
         on_delete=models.CASCADE,
-        related_name="gigs_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="gigs_from_gigs_app"
     )
     title = models.CharField(max_length=200)
     description = models.TextField()
@@ -79,6 +79,12 @@ class GigRequest(models.Model):
         self.status = self.STATUS_CLOSED
         self.save()
 
+    def active_bids(self):
+        return self.bids_from_gigs_app.filter(status=Bid.STATUS_PENDING)
+
+    def accepted_bid(self):
+        return self.bids_from_gigs_app.filter(status=Bid.STATUS_ACCEPTED).first()
+
 
 class Bid(models.Model):
     STATUS_PENDING = "Pending"
@@ -94,12 +100,12 @@ class Bid(models.Model):
     gig_request = models.ForeignKey(
         GigRequest,
         on_delete=models.CASCADE,
-        related_name="bids_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="bids_from_gigs_app"
     )
     mentor = models.ForeignKey(
         MentorProfile,
         on_delete=models.CASCADE,
-        related_name="bids_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="bids_from_gigs_app"
     )
     proposed_rate = models.DecimalField(
         max_digits=8,
@@ -127,7 +133,7 @@ class Bid(models.Model):
         return f"Bid #{self.pk} by {self.mentor.user.username}"
 
     def accept(self):
-        from apps.gigs.models import Contract  # Inline import to avoid circular dependency
+        from apps.gigs.models import Contract
         self.gig_request.bids_from_gigs_app.exclude(pk=self.pk).update(status=self.STATUS_REJECTED)
         self.status = self.STATUS_ACCEPTED
         self.save()
@@ -136,6 +142,12 @@ class Bid(models.Model):
     def reject(self):
         self.status = self.STATUS_REJECTED
         self.save()
+
+    def is_winner(self):
+        return self.status == self.STATUS_ACCEPTED
+
+    def is_pending(self):
+        return self.status == self.STATUS_PENDING
 
 
 class Contract(models.Model):
@@ -152,22 +164,22 @@ class Contract(models.Model):
     bid = models.OneToOneField(
         Bid, 
         on_delete=models.CASCADE, 
-        related_name="contract_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="contract_from_gigs_app"
     )
     gig_request = models.ForeignKey(
         GigRequest,
         on_delete=models.CASCADE,
-        related_name="contracts_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="contracts_from_gigs_app"
     )
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="contracts_as_student_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="contracts_as_student_from_gigs_app"
     )
     mentor = models.ForeignKey(
         MentorProfile,
         on_delete=models.CASCADE,
-        related_name="contracts_as_mentor_from_gigs_app"  # Unique related_name to prevent conflicts
+        related_name="contracts_as_mentor_from_gigs_app"
     )
     start_date = models.DateTimeField(auto_now_add=True)
     end_date = models.DateTimeField(null=True, blank=True)
@@ -201,3 +213,12 @@ class Contract(models.Model):
         self.status = self.STATUS_CANCELLED
         self.end_date = timezone.now()
         self.save()
+
+    def is_active(self):
+        return self.status == self.STATUS_ACTIVE
+
+    def is_completed(self):
+        return self.status == self.STATUS_COMPLETED
+
+    def is_cancelled(self):
+        return self.status == self.STATUS_CANCELLED

@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
+import sys
 
+from pathlib import Path
 # ─── BASE ──────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "insecure-secret-key")
@@ -16,7 +17,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.sites", 
+    "django.contrib.sites",
 
     # Allauth core
     "allauth",
@@ -26,14 +27,14 @@ INSTALLED_APPS = [
     # Third-party
     "rest_framework",
     "rest_framework.authtoken",
-    #"corsheaders",
-    "drf_yasg",  # Swagger
+    "corsheaders",
+    "drf_yasg",
     "channels",
     "django_celery_beat",
     "django_celery_results",
     "django_filters",
 
-    # Custom Apps (core)
+    # Custom Apps
     "apps.users",
     "apps.appointments",
     "apps.mentors",
@@ -43,8 +44,9 @@ INSTALLED_APPS = [
     "apps.gigs",
     "apps.bids",
     "apps.wallets",
-    'apps.dashboard',
-    'apps.learning_requests',
+    "apps.learning_tracks",
+    "apps.dashboard",
+    "apps.learning_requests",
     "apps.transactions",
     "apps.match",
     "apps.chat",
@@ -54,7 +56,7 @@ INSTALLED_APPS = [
     "apps.support",
     "apps.mentorship_reviews",
 
-    # Apps with custom label (fix for duplicate label issue)
+    # Custom label apps
     "apps.sessions.apps.CustomSessionsConfig",
     "apps.reviews.apps.ReviewsConfig",
     "apps.payments.apps.PaymentsConfig",
@@ -69,7 +71,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "allauth.account.middleware.AccountMiddleware",  # Required by dj-rest-auth and allauth
+    "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -107,38 +109,68 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 # ─── CORS ──────────────────────────────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS = True
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000"]
-
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000"
+]
 
 # ─── REST FRAMEWORK ────────────────────────────────────────────────────────────
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
-    ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
-    ],
-    "DEFAULT_FILTER_BACKENDS": [
-        "django_filters.rest_framework.DjangoFilterBackend",
-        "rest_framework.filters.SearchFilter",
-        "rest_framework.filters.OrderingFilter",
-    ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 20,
-}
+
+
+# ... your previous settings above ...
+
+# ─── REST FRAMEWORK ────────────────────────────────────────────────────────────
+
+if 'test' in sys.argv:
+    REST_FRAMEWORK = {
+        "DEFAULT_AUTHENTICATION_CLASSES": [
+            "rest_framework.authentication.BasicAuthentication",
+        ],
+        "DEFAULT_PERMISSION_CLASSES": [
+            "rest_framework.permissions.IsAuthenticated",
+        ],
+        "DEFAULT_FILTER_BACKENDS": [
+            "django_filters.rest_framework.DjangoFilterBackend",
+            "rest_framework.filters.SearchFilter",
+            "rest_framework.filters.OrderingFilter",
+        ],
+        "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+        "PAGE_SIZE": 20,
+    }
+else:
+    REST_FRAMEWORK = {
+        "DEFAULT_AUTHENTICATION_CLASSES": [
+            "rest_framework.authentication.SessionAuthentication",
+            "rest_framework.authentication.TokenAuthentication",
+            "rest_framework_simplejwt.authentication.JWTAuthentication",
+        ],
+        "DEFAULT_PERMISSION_CLASSES": [
+            "rest_framework.permissions.IsAuthenticatedOrReadOnly",
+        ],
+        "DEFAULT_FILTER_BACKENDS": [
+            "django_filters.rest_framework.DjangoFilterBackend",
+            "rest_framework.filters.SearchFilter",
+            "rest_framework.filters.OrderingFilter",
+        ],
+        "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+        "PAGE_SIZE": 20,
+    }
+
+# ... rest of your settings below ...
 
 # ─── CHANNELS / REDIS ──────────────────────────────────────────────────────────
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [os.getenv("REDIS_URL", "redis://localhost:6379")]},
+        "CONFIG": {
+            "hosts": [os.getenv("REDIS_URL", "redis://localhost:6379")]
+        },
     }
 }
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-REST_AUTH_REGISTER_SERIALIZERS = {
-    'REGISTER_SERIALIZER': 'apps.users.serializers.RegisterSerializer',
-}
+
 # ─── CELERY ────────────────────────────────────────────────────────────────────
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -146,22 +178,34 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 
+# ✔️ RECOMMENDED DJANGO-ALLAUTH SETTINGS (No warnings)
+ACCOUNT_SIGNUP_FIELDS = {
+    "username": {"required": True},
+    "email": {"required": True},
+    "password1": {"required": True},
+    "password2": {"required": True},
+}
+ACCOUNT_LOGIN_METHODS = {"username"}
+ACCOUNT_EMAIL_VERIFICATION = "none"  # 'mandatory' for production
+
+SITE_ID = 1
+
+# ─── REST AUTH CUSTOM SERIALIZERS ──────────────────────────────────────────────
+REST_AUTH_REGISTER_SERIALIZERS = {
+    'REGISTER_SERIALIZER': 'apps.users.serializers.RegisterSerializer',
+}
+
 # ─── SWAGGER / REDOC ───────────────────────────────────────────────────────────
 SWAGGER_SETTINGS = {
     "USE_SESSION_AUTH": True,
     "SECURITY_DEFINITIONS": {
-        "Token": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        "Token": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
     },
 }
-SITE_ID = 1
-
-# ─── DJANGO-ALLAUTH SETTINGS ───────────────────────────────────────────────────
-ACCOUNT_LOGIN_METHODS = {"username"}
-#ACCOUNT_AUTHENTICATION_METHOD = "username"  # Replace 'ACCOUNT_LOGIN_METHODS'
-ACCOUNT_SIGNUP_FIELDS = ["username", "email", "password1", "password2"]
-#ACCOUNT_USERNAME_REQUIRED = True
-#ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_EMAIL_VERIFICATION = "none"  # Use 'mandatory' for production
 
 # ─── EMAIL (Console for dev) ───────────────────────────────────────────────────
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
@@ -183,10 +227,5 @@ TEMPLATES = [
     },
 ]
 
-INSTALLED_APPS += ['corsheaders']
-MIDDLEWARE = ['corsheaders.middleware.CorsMiddleware'] + MIDDLEWARE
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Frontend Vite dev server
-    "http://127.0.0.1:5173"
-]
+# ─── DEFAULTS ──────────────────────────────────────────────────────────────────
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

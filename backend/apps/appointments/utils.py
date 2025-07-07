@@ -1,36 +1,51 @@
 # apps/appointments/utils.py
 
+import csv
 from django.core.mail import send_mail
 from django.http import HttpResponse
-import csv
 from django.db.models import Count
-from apps.mentors.models import MentorProfile
-from .models import Appointment
+from django.utils import timezone
 
-# ---- Reminders ----
+from .models import Appointment
+from apps.mentors.models import MentorProfile
+
+# ─────────────────────────────────────────────────────
+# 📧 Email Reminder
+# ─────────────────────────────────────────────────────
+
 def send_appointment_reminder(appointment):
-    """Send an email reminder for the appointment."""
+    """
+    Sends an email reminder to the student about an upcoming appointment.
+    """
     send_mail(
-        subject="Upcoming Appointment Reminder",
+        subject="⏰ Appointment Reminder - OneGo",
         message=(
-            f"Dear {appointment.student.get_full_name()},\n\n"
-            f"This is a reminder for your upcoming appointment with mentor"
-            f" {appointment.mentor.user.get_full_name()} on {appointment.start_time}.\n\n"
-            "Best regards,\nOneGo Team"
+            f"Hi {appointment.student.get_full_name()},\n\n"
+            f"This is a reminder for your appointment with mentor "
+            f"{appointment.mentor.user.get_full_name()} scheduled on "
+            f"{appointment.start_time.strftime('%A, %d %B %Y at %I:%M %p')}.\n\n"
+            "Prepare your questions and join on time!\n\n"
+            "— Team OneGo"
         ),
         from_email="noreply@onego.app",
         recipient_list=[appointment.student.email],
         fail_silently=False,
     )
 
+# ─────────────────────────────────────────────────────
+# 📁 CSV Export
+# ─────────────────────────────────────────────────────
 
-# ---- CSV Export ----
 def export_appointments_csv(queryset):
-    """Export a queryset of appointments to CSV."""
+    """
+    Exports a queryset of appointments into a downloadable CSV.
+    """
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="appointments.csv"'
+
     writer = csv.writer(response)
     writer.writerow(['Student', 'Mentor', 'Start Time', 'End Time', 'Status'])
+
     for appt in queryset:
         writer.writerow([
             appt.student.get_full_name(),
@@ -39,12 +54,17 @@ def export_appointments_csv(queryset):
             appt.end_time.strftime('%Y-%m-%d %H:%M'),
             appt.get_status_display(),
         ])
+
     return response
 
+# ─────────────────────────────────────────────────────
+# 📊 Analytics
+# ─────────────────────────────────────────────────────
 
-# ---- Analytics ----
 def get_mentor_appointment_count(mentor, start=None, end=None):
-    """Return the number of appointments for a given mentor, optionally within a time range."""
+    """
+    Returns appointment count for a given mentor within an optional date range.
+    """
     qs = mentor.appointments.all()
     if start:
         qs = qs.filter(start_time__gte=start)
@@ -54,7 +74,9 @@ def get_mentor_appointment_count(mentor, start=None, end=None):
 
 
 def get_most_booked_mentors(top_n=5):
-    """Return top mentors by number of appointments."""
+    """
+    Returns the top N mentors ordered by number of appointments.
+    """
     return (
         MentorProfile.objects
         .annotate(num_appointments=Count('appointments'))
@@ -63,7 +85,9 @@ def get_most_booked_mentors(top_n=5):
 
 
 def get_busiest_days(days=7):
-    """Return busiest days based on number of appointments."""
+    """
+    Returns the busiest days (in last N days) by total appointments scheduled.
+    """
     return (
         Appointment.objects
         .values('start_time__date')
@@ -71,16 +95,47 @@ def get_busiest_days(days=7):
         .order_by('-num_appointments')[:days]
     )
 
+# ─────────────────────────────────────────────────────
+# 🔁 Auto Status Update
+# ─────────────────────────────────────────────────────
 
-# ---- Google Calendar Sync (stub) ----
-def add_to_google_calendar(appointment, credentials_data):
-    """Stub for Google Calendar sync - not implemented yet."""
-    # Integrate with Google Calendar API here
-    pass
+def auto_mark_past_appointments_completed():
+    """
+    Mark confirmed appointments in the past as 'completed'.
+    Useful for scheduled jobs or CRON tasks.
+    """
+    past_qs = Appointment.objects.filter(
+        end_time__lt=timezone.now(),
+        status="confirmed"
+    )
+    updated_count = past_qs.update(status="completed")
+    return updated_count
 
+# ─────────────────────────────────────────────────────
+# 📆 Google Calendar Integration (Stub)
+# ─────────────────────────────────────────────────────
 
-# ---- SMS Reminder (stub) ----
-def send_sms_reminder(to_number, body):
-    """Stub for SMS reminder - not implemented yet."""
-    # Integrate with SMS provider (e.g., Twilio)
-    pass
+def add_to_google_calendar(appointment, credentials_data=None):
+    """
+    Stub: Add appointment to Google Calendar via API.
+    Accepts appointment instance and OAuth credentials data.
+    """
+    # Integration example:
+    # from googleapiclient.discovery import build
+    # service = build('calendar', 'v3', credentials=credentials)
+    # service.events().insert(calendarId='primary', body=event).execute()
+    print(f"[Stub] Add to Google Calendar: {appointment}")
+    return None
+
+# ─────────────────────────────────────────────────────
+# 📱 SMS Reminder (Stub)
+# ─────────────────────────────────────────────────────
+
+def send_sms_reminder(to_number, message):
+    """
+    Stub: Send SMS reminder using a provider like Twilio or Fast2SMS.
+    """
+    # Example placeholder:
+    # client.messages.create(to=to_number, body=message, from_="OneGo")
+    print(f"[Stub] SMS to {to_number}: {message}")
+    return None

@@ -1,11 +1,12 @@
-from django.urls import path
-from . import views
+# apps/appointments/urls.py
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import AppointmentViewSet
+
+router = DefaultRouter()
+router.register(r'appointments', AppointmentViewSet, basename='appointments')
 
 urlpatterns = [
-    path('', views.AppointmentListCreateView.as_view(), name='appointments_list_create'),
-    path('<int:pk>/', views.AppointmentDetailView.as_view(), name='appointment_detail'),
-    path('analytics/', views.AnalyticsView.as_view(), name='appointments_analytics'),
-    path('reminder/<int:pk>/', views.AppointmentReminderView.as_view(), name='appointments_reminder'),
-    path('export/', views.AppointmentExportCSVView.as_view(), name='appointments_export'),
-    path('calendar/<int:pk>/sync/', views.AppointmentGoogleCalendarSyncView.as_view(), name='appointments_google_sync'),
+    path('', include(router.urls)),
 ]

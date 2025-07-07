@@ -1,17 +1,22 @@
-# apps/users/serializers.py
-
 from django.contrib.auth import get_user_model, password_validation
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
+from apps.users.models import StudentProfile
 
 User = get_user_model()
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔹 Minimal user serializer for nested use
+# ──────────────────────────────────────────────────────────────────────────────
 class UserShortSerializer(serializers.ModelSerializer):
-    """Minimal user serializer for nested use (e.g., mentor, review)"""
     class Meta:
         model = User
         fields = ['id', 'username', 'first_name', 'last_name']
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔹 Main user profile serializer
+# ──────────────────────────────────────────────────────────────────────────────
 class UserSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
 
@@ -30,6 +35,10 @@ class UserSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.avatar.url)
         return None
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔹 User registration serializer
+# ──────────────────────────────────────────────────────────────────────────────
 class RegisterSerializer(serializers.ModelSerializer):
     password1 = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
     password2 = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
@@ -59,8 +68,15 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=password,
             **validated_data
         )
+        # Auto-create student profile if role is student
+        if user.role == User.Role.STUDENT:
+            StudentProfile.objects.get_or_create(user=user)
         return user
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔹 Login serializer
+# ──────────────────────────────────────────────────────────────────────────────
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
@@ -78,6 +94,10 @@ class LoginSerializer(serializers.Serializer):
             "refresh": str(refresh),
         }
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔹 Change password serializer
+# ──────────────────────────────────────────────────────────────────────────────
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True, style={"input_type": "password"})
     new_password = serializers.CharField(write_only=True, style={"input_type": "password"})
@@ -97,3 +117,15 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data["new_password"])
         user.save()
         return user
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔹 Student profile serializer
+# ──────────────────────────────────────────────────────────────────────────────
+class StudentProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentProfile
+        fields = [
+            "photo", "education", "interests", "learning_goals",
+            "language_preference", "budget_range"
+        ]

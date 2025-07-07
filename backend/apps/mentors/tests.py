@@ -1,58 +1,63 @@
-# mentors/tests.py
-from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APITestCase
+from rest_framework import status
 from django.contrib.auth import get_user_model
-from categories.models import Category
-from mentors.models import MentorProfile
-from rest_framework.test import APIClient
+from apps.mentors.models import MentorProfile, AvailabilitySlot
 
 User = get_user_model()
 
-class MentorProfileTests(TestCase):
+class MentorTestCase(APITestCase):
+
     def setUp(self):
-        self.user = User.objects.create_user(username="mentor1", password="pass123")
-        self.category = Category.objects.create(name="Math", type="Education")
+        self.user = User.objects.create_user(
+            username="mentor1",
+            email="mentor1@example.com",
+            password="testpass123",
+            role="mentor"
+        )
         self.mentor_profile = MentorProfile.objects.create(
             user=self.user,
-            bio="Experienced math tutor",
-            hourly_rate=100,
-            per_minute_rate=2,
-            rating=4.5,
-            num_reviews=10,
-            languages="en,hi",
-            certifications="BSc Math"
+            bio="Expert in Python",
+            expertise="Python, Django",
+            hourly_rate=50
         )
-        self.mentor_profile.specialties.add(self.category)
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
+        self.client.login(username="mentor1", password="testpass123")
 
-    def test_mentor_profile_str(self):
-        self.assertEqual(str(self.mentor_profile), f"{self.user.username} (⭐{self.mentor_profile.rating:.1f})")
-
-    def test_available_at_filter(self):
-        now = "2025-06-20T12:00:00Z"
-        self.mentor_profile.availability_windows = [
-            {"start": "2025-06-20T10:00:00Z", "end": "2025-06-20T14:00:00Z"}
-        ]
-        self.mentor_profile.save()
-
-        response = self.client.get(f"/api/mentors/?available_at={now}")
+    def test_get_my_mentor_profile(self):
+        url = reverse("mentor-me")
+        response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data["bio"], "Expert in Python")
 
-    def test_mentor_dashboard(self):
-        response = self.client.get("/api/mentors/dashboard/")
+    def test_partial_update_mentor_profile(self):
+        url = reverse("mentor-me")
+        data = {"bio": "Updated bio", "hourly_rate": 60}
+        response = self.client.patch(url, data)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("mentor", response.data)
+        self.assertEqual(response.data["bio"], "Updated bio")
+        self.assertEqual(response.data["hourly_rate"], 60)
+
+    def test_get_weekly_availability(self):
+        url = reverse("mentor-availability")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+    def test_create_availability_slot(self):
+        url = reverse("mentor-availability")
+        data = {
+            "day": "monday",
+            "start_time": "10:00:00",
+            "end_time": "12:00:00"
+        }
+        response = self.client.post(url, data)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(AvailabilitySlot.objects.filter(mentor=self.mentor_profile).exists())
+
+    def test_dashboard_summary(self):
+        url = reverse("mentor-dashboard")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("total_sessions", response.data)
         self.assertIn("total_earnings", response.data)
+        self.assertIn("average_rating", response.data)
 
-    def test_mentor_me_view(self):
-        response = self.client.get("/api/mentors/me/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["user"]["id"], self.user.id)
-
-    def test_update_mentor_profile(self):
-        data = {"bio": "Updated bio", "specialty_ids": [self.category.id]}
-        response = self.client.put("/api/mentors/me/", data, format="json")
-        self.assertEqual(response.status_code, 200)
-        self.mentor_profile.refresh_from_db()
-        self.assertEqual(self.mentor_profile.bio, "Updated bio")

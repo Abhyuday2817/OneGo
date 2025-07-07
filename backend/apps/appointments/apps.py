@@ -5,8 +5,12 @@ from django.apps import AppConfig
 
 class AppointmentsConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'apps.appointments'  # Ensure correct full path to the app
+    name = 'apps.appointments'
+    verbose_name = "Appointments & Bookings"
 
     def ready(self):
-        # Import signals properly using full path
-        import apps.appointments.signals  # noqa
+        """
+        Called when the app is fully loaded.
+        Used to connect signals and perform setup tasks.
+        """
+        import apps.appointments.signals  # noqa: F401

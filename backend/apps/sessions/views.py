@@ -7,7 +7,12 @@ from django.db import transaction
 from django.db.models import Q
 
 from .models import Session
-from .serializers import SessionSerializer
+from .serializers import (
+    SessionSerializer,
+    SessionStatusUpdateSerializer,
+    SessionVerifySerializer,
+    SessionTimerSerializer
+)
 from services.escrow import hold_session_fee, release_to_mentor, refund_session
 
 
@@ -26,6 +31,11 @@ class SessionFilter(df_filters.FilterSet):
 
 
 class SessionViewSet(viewsets.ModelViewSet):
+    """
+    🎥 SessionViewSet:
+    - CRUD for sessions
+    - Custom actions: confirm, cancel, bulk_cancel, start, end, stats
+    """
     queryset = Session.objects.select_related("student", "mentor__user").all()
     serializer_class = SessionSerializer
     filterset_class = SessionFilter
@@ -35,9 +45,7 @@ class SessionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return self.queryset.filter(
-            Q(student=user) | Q(mentor__user=user)
-        )
+        return self.queryset.filter(Q(student=user) | Q(mentor__user=user))
 
     def perform_create(self, serializer):
         session = serializer.save()
@@ -47,15 +55,13 @@ class SessionViewSet(viewsets.ModelViewSet):
     def confirm(self, request, pk=None):
         session = self.get_object()
         role = request.query_params.get("role")
+
         if role == "student" and request.user == session.student:
             session.student_confirmed = True
         elif role == "mentor" and request.user == session.mentor.user:
             session.mentor_confirmed = True
         else:
-            return Response(
-                {"detail": "Invalid role or permission."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            return Response({"detail": "Invalid role or permission."}, status=403)
 
         session.save()
         session.try_verify()
@@ -65,7 +71,8 @@ class SessionViewSet(viewsets.ModelViewSet):
     def cancel(self, request, pk=None):
         session = self.get_object()
         if request.user not in [session.student, session.mentor.user]:
-            return Response(status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Permission denied"}, status=403)
+
         session.cancel()
         refund_session(session)
         return Response({"status": "cancelled"})
@@ -75,16 +82,19 @@ class SessionViewSet(viewsets.ModelViewSet):
         ids = request.data.get("ids", [])
         sessions = Session.objects.filter(id__in=ids)
         cancelled_count = 0
+
         for sess in sessions:
             sess.cancel()
             refund_session(sess)
             cancelled_count += 1
+
         return Response({"cancelled_count": cancelled_count})
 
     @action(detail=False, methods=["get"])
     def stats(self, request):
         qs = self.get_queryset()
         mentor_id = request.query_params.get("mentor_id")
+
         if mentor_id:
             qs = qs.filter(mentor_id=mentor_id)
 
@@ -98,13 +108,63 @@ class SessionViewSet(viewsets.ModelViewSet):
 
         total = qs.count()
         completed = qs.filter(status=Session.STATUS_COMPLETED).count()
-        revenue = sum(
-            s.rate_applied * s.duration_minutes()
-            for s in qs.filter(status=Session.STATUS_COMPLETED)
-        )
+        revenue = sum(s.total_cost() for s in qs.filter(status=Session.STATUS_COMPLETED))
 
         return Response({
             "total_sessions": total,
             "completed_sessions": completed,
             "estimated_revenue": round(float(revenue), 2)
         })
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        session = self.get_object()
+        if request.user != session.mentor.user:
+            return Response({"detail": "Only mentor can start the session."}, status=403)
+
+        session.start_session()
+        return Response({
+            "status": "started",
+            "started_at": session.actual_start_time
+        })
+
+    @action(detail=True, methods=["post"])
+    def end(self, request, pk=None):
+        session = self.get_object()
+        if request.user != session.mentor.user:
+            return Response({"detail": "Only mentor can end the session."}, status=403)
+
+        with transaction.atomic():
+            session.end_session()
+            release_to_mentor(session)
+
+        return Response({
+            "status": "completed",
+            "duration": session.duration_minutes,
+            "price": session.total_price
+        })
+
+    @action(detail=True, methods=["patch"], url_path="update-status")
+    def update_status(self, request, pk=None):
+        session = self.get_object()
+        serializer = SessionStatusUpdateSerializer(session, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(SessionSerializer(session).data)
+
+    @action(detail=True, methods=["patch"], url_path="verify")
+    def verify_flags(self, request, pk=None):
+        session = self.get_object()
+        serializer = SessionVerifySerializer(session, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        session.try_verify()
+        return Response(SessionSerializer(session).data)
+
+    @action(detail=True, methods=["patch"], url_path="timer")
+    def update_timer(self, request, pk=None):
+        session = self.get_object()
+        serializer = SessionTimerSerializer(session, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(SessionSerializer(session).data)

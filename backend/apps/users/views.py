@@ -1,8 +1,8 @@
 from rest_framework import viewsets, mixins, status
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-
 from django.contrib.auth import get_user_model
 
 from .serializers import (
@@ -10,18 +10,19 @@ from .serializers import (
     RegisterSerializer,
     LoginSerializer,
     ChangePasswordSerializer,
+    StudentProfileSerializer
 )
+from .models import StudentProfile
 from .permissions import IsAdmin
 
 User = get_user_model()
 
-
+# 🔹 1. AuthViewSet (Register + Login)
 class AuthViewSet(viewsets.GenericViewSet):
     """
-    Handles:
+    🔐 Handles:
     - POST /api/auth/register/
     - POST /api/auth/login/
-    (refresh handled via JWT: /api/auth/token/refresh/)
     """
     permission_classes = [AllowAny]
     serializer_classes = {
@@ -49,25 +50,28 @@ class AuthViewSet(viewsets.GenericViewSet):
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
+# 🔹 2. UserViewSet (Admin & User Profile)
 class UserViewSet(viewsets.GenericViewSet,
                   mixins.RetrieveModelMixin,
                   mixins.UpdateModelMixin,
                   mixins.ListModelMixin):
     """
-    Admin + user endpoints:
-    - GET    /api/users/            (admin only)
-    - GET    /api/users/{id}/       (admin only)
-    - GET    /api/users/me/         (current user)
-    - PATCH  /api/users/me/         (update own info)
-    - POST   /api/users/me/password/  (change password)
+    🙋‍♂️ Admin + User endpoints:
+    - GET    /api/users/                      (admin only)
+    - GET    /api/users/{id}/                 (admin only)
+    - GET    /api/users/me/                   (current user info)
+    - PATCH  /api/users/me/                   (update own info)
+    - POST   /api/users/me/password/          (change password)
+    - GET/PUT /api/users/me/student-profile/  (student profile CRUD)
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]  # default global permission
 
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [IsAuthenticated(), IsAdmin()]
-        if self.action in ["me", "password", "partial_update", "update"]:
+        if self.action in ["me", "password", "student_profile"]:
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -81,20 +85,43 @@ class UserViewSet(viewsets.GenericViewSet,
         """
         GET /api/users/me/
         """
-        return Response(
-            self.get_serializer(request.user, context={"request": request}).data
-        )
+        serializer = UserSerializer(request.user, context={"request": request})
+        return Response(serializer.data)
 
     @action(detail=False, methods=["post"], url_path="me/password")
     def password(self, request):
         """
         POST /api/users/me/password/
-        {
-          "old_password": "current123",
-          "new_password": "newpass456"
-        }
+        Payload: {"old_password": "...", "new_password": "..."}
         """
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response({"detail": "Password updated."}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get", "put"], url_path="me/student-profile")
+    def student_profile(self, request):
+        """
+        - GET /api/users/me/student-profile/
+        - PUT /api/users/me/student-profile/
+        """
+        profile, _ = StudentProfile.objects.get_or_create(user=request.user)
+
+        if request.method == "GET":
+            return Response(StudentProfileSerializer(profile).data)
+
+        serializer = StudentProfileSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# 🔹 3. ChangePasswordView (if separate endpoint)
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"detail": "Password changed successfully."}, status=status.HTTP_200_OK)

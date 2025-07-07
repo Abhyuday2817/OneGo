@@ -2,8 +2,8 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from django.core.validators import MinValueValidator
-from django.apps import apps
 from icalendar import Calendar, Event
+
 
 class SessionQuerySet(models.QuerySet):
     def upcoming(self):
@@ -23,11 +23,15 @@ class SessionQuerySet(models.QuerySet):
             mentor=mentor,
             start_time__lt=end,
             end_time__gt=start,
-            status__in=[Session.STATUS_SCHEDULED, Session.STATUS_COMPLETED]
+            status__in=[
+                Session.STATUS_SCHEDULED,
+                Session.STATUS_ONGOING,
+            ],
         )
 
 
 class Session(models.Model):
+    # Session Types
     TYPE_LIVE = "Live"
     TYPE_PAY_PER_MIN = "PayPerMinute"
     TYPE_FIXED = "Fixed"
@@ -38,10 +42,11 @@ class Session(models.Model):
         (TYPE_FIXED, "Fixed-rate"),
     ]
 
+    # Status Choices
     STATUS_SCHEDULED = "Scheduled"
+    STATUS_ONGOING = "Ongoing"
     STATUS_COMPLETED = "Completed"
     STATUS_CANCELLED = "Cancelled"
-    STATUS_ONGOING = "Ongoing"
 
     STATUS_CHOICES = [
         (STATUS_SCHEDULED, "Scheduled"),
@@ -55,8 +60,9 @@ class Session(models.Model):
         on_delete=models.CASCADE,
         related_name="sessions_as_student"
     )
+
     mentor = models.ForeignKey(
-        'mentors.MentorProfile',
+        "mentors.MentorProfile",
         on_delete=models.CASCADE,
         related_name="sessions_as_mentor"
     )
@@ -74,7 +80,6 @@ class Session(models.Model):
     mentor_confirmed = models.BooleanField(default=False)
     verified = models.BooleanField(default=False)
 
-    # Timer logic
     actual_start_time = models.DateTimeField(null=True, blank=True)
     actual_end_time = models.DateTimeField(null=True, blank=True)
     duration_minutes = models.PositiveIntegerField(null=True, blank=True)
@@ -91,7 +96,11 @@ class Session(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.get_session_type_display()} session {self.student.username} ↔ {self.mentor.user.username} on {self.start_time:%Y-%m-%d %H:%M}"
+        return (
+            f"{self.get_session_type_display()} session "
+            f"{self.student.username} ↔ {self.mentor.user.username} "
+            f"on {self.start_time:%Y-%m-%d %H:%M}"
+        )
 
     def duration_minutes_calc(self):
         delta = self.end_time - self.start_time
@@ -122,9 +131,10 @@ class Session(models.Model):
 
     def end_session(self):
         self.actual_end_time = timezone.now()
-        duration = (self.actual_end_time - self.actual_start_time).total_seconds() / 60
-        self.duration_minutes = round(duration)
-        self.total_price = self.duration_minutes * float(self.rate_applied)
+        if self.actual_start_time:
+            duration = (self.actual_end_time - self.actual_start_time).total_seconds() / 60
+            self.duration_minutes = round(duration)
+            self.total_price = self.duration_minutes * float(self.rate_applied)
         self.status = self.STATUS_COMPLETED
         self.save()
 

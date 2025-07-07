@@ -1,9 +1,8 @@
-# apps/support/models.py
+### 📁 apps/support/models.py
 
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-
 
 class SupportTicket(models.Model):
     STATUS_OPEN = "open"
@@ -81,3 +80,10 @@ class SupportTicket(models.Model):
     def assign_to(self, staff_user):
         self.assigned_to = staff_user
         self.save()
+
+    def mark_in_progress(self):
+        self.status = self.STATUS_IN_PROGRESS
+        self.save()
+
+    def is_resolved(self):
+        return self.status == self.STATUS_CLOSED and bool(self.resolution)

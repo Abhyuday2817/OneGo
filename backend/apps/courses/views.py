@@ -2,19 +2,20 @@ from rest_framework import viewsets, filters, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters import rest_framework as df_filters
-from django.shortcuts import get_object_or_404
 
-from .models import Course, CourseQuiz
-from .serializers import CourseSerializer, CourseQuizSerializer
+from .models import Course
+from .serializers import CourseSerializer
 from services.recommendations import recommend_courses_for_student
+from apps.enrollments.models import Enrollment
+from apps.enrollments.models import Enrollment
 
 
 class CourseFilter(df_filters.FilterSet):
     price_min = df_filters.NumberFilter(field_name="price", lookup_expr="gte")
     price_max = df_filters.NumberFilter(field_name="price", lookup_expr="lte")
-    delivery  = df_filters.CharFilter(field_name="delivery_type", lookup_expr="iexact")
-    category  = df_filters.NumberFilter(field_name="category_id")
-    mentor    = df_filters.NumberFilter(field_name="mentor_id")
+    delivery = df_filters.CharFilter(field_name="delivery_type", lookup_expr="iexact")
+    category = df_filters.NumberFilter(field_name="category_id")
+    mentor = df_filters.NumberFilter(field_name="mentor_id")
 
     class Meta:
         model = Course
@@ -25,31 +26,24 @@ class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.select_related('category', 'mentor__user').all()
     serializer_class = CourseSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    # Filtering, searching, ordering
     filterset_class = CourseFilter
-    filter_backends = [
-        df_filters.DjangoFilterBackend,
-        filters.SearchFilter,
-        filters.OrderingFilter
-    ]
+    filter_backends = [df_filters.DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'mentor__user__username']
     ordering_fields = ['price', 'created_at']
     ordering = ['-created_at']
 
     def perform_create(self, serializer):
-        mentor_profile = self.request.user.mentorprofile
-        serializer.save(mentor=mentor_profile)
+        if not hasattr(self.request.user, 'mentorprofile'):
+            raise PermissionError("Only mentors can create courses.")
+        serializer.save(mentor=self.request.user.mentorprofile)
 
     @action(detail=True, methods=['post'], url_path='enroll')
     def enroll(self, request, pk=None):
         course = self.get_object()
         student = request.user
-        try:
-            enrollment = course.enroll(student)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
+        if Enrollment.objects.filter(course=course, student=student).exists():
+            return Response({"detail": "Already enrolled."}, status=status.HTTP_400_BAD_REQUEST)
+        enrollment = Enrollment.objects.create(course=course, student=student)
         return Response({
             "status": "enrolled",
             "course_id": course.id,
@@ -60,7 +54,9 @@ class CourseViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='related')
     def related(self, request, pk=None):
         course = self.get_object()
-        related_courses = course.related(limit=5)
+        related_courses = Course.objects.filter(
+            category=course.category
+        ).exclude(id=course.id)[:5]
 
         page = self.paginate_queryset(related_courses)
         if page is not None:
@@ -83,10 +79,10 @@ class CourseViewSet(viewsets.ModelViewSet):
 
         if budget:
             try:
-                max_price = float(budget)
-                courses = [c for c in courses if c.price <= max_price]
+                budget = float(budget)
+                courses = [c for c in courses if c.price <= budget]
             except ValueError:
-                return Response({"error": "Invalid budget value."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid budget format."}, status=status.HTTP_400_BAD_REQUEST)
 
         if delivery:
             courses = [c for c in courses if c.delivery_type.lower() == delivery.lower()]
@@ -98,9 +94,3 @@ class CourseViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(courses, many=True)
         return Response(serializer.data)
-
-
-class CourseQuizViewSet(viewsets.ModelViewSet):
-    queryset = CourseQuiz.objects.all()
-    serializer_class = CourseQuizSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]

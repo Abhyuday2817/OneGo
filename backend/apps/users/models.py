@@ -4,14 +4,14 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
+# ──────────────────────────────────────────────────────────────────────────────
+# User Model
+# ──────────────────────────────────────────────────────────────────────────────
 
 class User(AbstractUser):
-    """
-    Custom user model extending Django's AbstractUser,
-    with support for role-based access and additional profile fields.
-    """
-
     class Role(models.TextChoices):
         STUDENT = "student", _("Student")
         MENTOR  = "mentor",  _("Mentor")
@@ -24,13 +24,11 @@ class User(AbstractUser):
         help_text=_("Designates whether the user is a student, mentor, or admin.")
     )
 
-    # Common profile fields
-    bio       = models.TextField(blank=True)
-    avatar    = models.ImageField(upload_to="avatars/", blank=True, null=True)
+    bio = models.TextField(blank=True)
+    avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
     languages = models.JSONField(default=list, blank=True, help_text=_("List of ISO language codes."))
-    location  = models.CharField(max_length=255, blank=True)
+    location = models.CharField(max_length=255, blank=True)
 
-    # Mentor-specific fields (optional)
     hourly_rate = models.DecimalField(
         max_digits=7,
         decimal_places=2,
@@ -55,11 +53,20 @@ class User(AbstractUser):
         return self.role == self.Role.MENTOR
 
     def is_admin(self) -> bool:
-        return self.role == self.Role.ADMIN
+        return self.role == self.Role.ADMIN or self.is_staff
 
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+    class Meta:
+        ordering = ['-date_joined']
+        verbose_name = "User"
+        verbose_name_plural = "Users"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Student Profile
+# ──────────────────────────────────────────────────────────────────────────────
 
 class StudentProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
@@ -72,3 +79,17 @@ class StudentProfile(models.Model):
 
     def __str__(self):
         return f"StudentProfile: {self.user.username}"
+
+    class Meta:
+        verbose_name = "Student Profile"
+        verbose_name_plural = "Student Profiles"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Auto-create StudentProfile if user is student
+# ──────────────────────────────────────────────────────────────────────────────
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created and instance.role == User.Role.STUDENT:
+        StudentProfile.objects.get_or_create(user=instance)

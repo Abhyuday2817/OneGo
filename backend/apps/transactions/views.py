@@ -17,14 +17,19 @@ class TransactionViewSet(viewsets.ReadOnlyModelViewSet):
       → Aggregated totals for credits, debits, and count by type.
     """
     serializer_class = TransactionSerializer
-    permission_classes = []  # You can customize as needed
+    permission_classes = []  # Customize as needed
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ["timestamp", "amount"]
     ordering = ["-timestamp"]
     search_fields = ["reference", "txn_type"]
 
+    # ✅ Required for router registration to avoid `basename` error
+    queryset = Transaction.objects.all()
+
     def get_queryset(self):
         user = self.request.user
+        if user.is_anonymous:
+            return Transaction.objects.none()
         return Transaction.objects.for_user(user)
 
     @action(detail=False, methods=["get"])
